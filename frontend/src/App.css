@@ -841,3 +841,194 @@ body {
   min-height: 0;
 }
 
+/* Guided Production Stepper */
+.production-stepper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(9, 13, 22, 0.6);
+  border-bottom: 1px solid var(--border-glass);
+  border-radius: 8px 8px 0 0;
+  gap: 8px;
+}
+
+.stepper-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
+  text-align: center;
+  transition: var(--transition);
+}
+
+.step-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(30, 41, 59, 0.8);
+  border: 2px solid var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  z-index: 2;
+  transition: var(--transition);
+}
+
+.step-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  max-width: 80px;
+  line-height: 1.2;
+}
+
+/* Stepper Active/Completed states */
+.stepper-step.active .step-circle {
+  border-color: var(--cyan-glow);
+  background: var(--cyan-fade);
+  color: var(--cyan-glow);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+}
+
+.stepper-step.active .step-label {
+  color: var(--cyan-glow);
+}
+
+.stepper-step.completed .step-circle {
+  border-color: var(--green-glow);
+  background: var(--green-fade);
+  color: var(--green-glow);
+}
+
+.stepper-step.completed .step-label {
+  color: var(--text-primary);
+}
+
+/* Operator Instructions Panel */
+.operator-instructions-panel {
+  padding: 14px 16px;
+  background: rgba(6, 182, 212, 0.02);
+  border-bottom: 1px solid var(--border-glass);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.instruction-title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--cyan-glow);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.instruction-text {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+/* Order Specific Timeline */
+.order-timeline-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  max-height: 250px;
+  background: #040711;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.timeline-list {
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  padding-bottom: 6px;
+}
+
+.timeline-time {
+  color: var(--text-secondary);
+  font-family: 'Fira Code', monospace;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
+.timeline-badge-tag {
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.55rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge-lens-OD {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.badge-lens-OE {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.badge-event-LENS_POSITIONED { color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+.badge-event-ENGRAVING_STARTED { color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+.badge-event-ENGRAVING_COMPLETED { color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+.badge-event-LENS_REMOVED { color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-event-LENS_SKIPPED { color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+.badge-event-ENGRAVING_PAUSED { color: #f97316; border: 1px solid rgba(249, 115, 22, 0.3); }
+.badge-event-ENGRAVING_RESUMED { color: #22d3ee; border: 1px solid rgba(34, 211, 238, 0.3); }
+.badge-event-ENGRAVING_RESTARTED { color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); }
+.badge-event-ENGRAVING_CANCELLED { color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
+.badge-event-ERROR { color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); animation: pulse-error-text 1.5s infinite; }
+
+@keyframes pulse-error-text {
+  0% { opacity: 0.8; }
+  50% { opacity: 1; }
+  100% { opacity: 0.8; }
+}
+
+.timeline-msg-text {
+  color: var(--text-primary);
+}
+
+.timeline-msg-text.warning {
+  color: #fbbf24;
+}
+
+.timeline-msg-text.danger {
+  color: #f87171;
+}
+
+/* Button style extensions */
+.btn-orange {
+  background: var(--orange-glow);
+  color: #000;
+}
+.btn-orange:hover:not(:disabled) {
+  box-shadow: 0 0 15px var(--orange-glow);
+}
+

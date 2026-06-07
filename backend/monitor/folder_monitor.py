@@ -13,7 +13,7 @@ from backend.config import WATCH_DIR, OUTPUT_DIR
 processing_files = set()
 processing_files_lock = threading.Lock()
 from backend.database import SessionLocal, Base, engine
-from backend.models import Job, Calibration, SystemLog, LensTemplate
+from backend.models import Job, Calibration, SystemLog, LensTemplate, OrderFlow, ProductionLog
 from backend.parser.oma_parser import OMAParser
 from backend.geometry.geo_engine import OphthalmicGeoEngine
 from backend.laser.laser_integration import LaserPathGenerator
@@ -44,6 +44,18 @@ def log_system_event(db: Session, level: str, message: str):
     db.add(log_entry)
     db.commit()
     logger.info(f"[{level}] {message}")
+
+def log_production_event(db: Session, job_id: str, event_type: str, message: str, lens_side: str = "NONE"):
+    """Helper to write operational production events to database."""
+    log_entry = ProductionLog(
+        job_id=job_id,
+        event_type=event_type,
+        message=message,
+        lens_side=lens_side
+    )
+    db.add(log_entry)
+    db.commit()
+    logger.info(f"[PRODUCTION_LOG] [{event_type}] Lens: {lens_side} - Job: {job_id} - {message}")
 
 def process_job_pipeline(db: Session, filepath: str, filename: str, force_reprocess: bool = False) -> Job:
     """
@@ -132,6 +144,32 @@ def process_job_pipeline(db: Session, filepath: str, filename: str, force_reproc
             # Extract main tags
             job.job_id = str(parsed_data.get("JOB", f"JOB-{job.id}"))
             job.eye = str(parsed_data.get("EYE", "R"))  # Default to Right if missing
+            
+            # Associate jobs and create/update OrderFlow state machine
+            if job.job_id:
+                order_flow = db.query(OrderFlow).filter(OrderFlow.job_id == job.job_id).first()
+                if not order_flow:
+                    order_flow = OrderFlow(
+                        job_id=job.job_id,
+                        state="WAITING_RIGHT_LENS"
+                    )
+                    db.add(order_flow)
+                    db.commit()
+                    db.refresh(order_flow)
+                
+                # Link lens jobs
+                if job.eye in ["R", "OD"]:
+                    order_flow.od_job_id = job.id
+                    order_flow.od_status = "PENDING"
+                    order_flow.state = "WAITING_RIGHT_LENS"
+                elif job.eye in ["L", "OS", "OE"]:
+                    order_flow.oe_job_id = job.id
+                    order_flow.oe_status = "PENDING"
+                    # If OD is missing, start with WAITING_LEFT_LENS
+                    if not order_flow.od_job_id:
+                        order_flow.state = "WAITING_LEFT_LENS"
+                db.commit()
+
             job.lens_name = parsed_data.get("LNAM", "Freeform Lens")
             job.axis = float(parsed_data.get("AXIS", 0.0))
             job.addition = float(parsed_data.get("ADD", 2.00))  # Default addition

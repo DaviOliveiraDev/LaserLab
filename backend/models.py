@@ -78,3 +78,36 @@ class TemplateHistory(Base):
     action = Column(String)                             # CREATE, UPDATE, DUPLICATE, ACTIVATE, DEACTIVATE
     changed_fields = Column(JSON, nullable=True)        # Dictionary of diff changes (e.g. {"offset_x": [old, new]})
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+class OrderFlow(Base):
+    __tablename__ = "order_flows"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String, unique=True, index=True, nullable=False)
+    state = Column(String, default="WAITING_RIGHT_LENS") # WAITING_RIGHT_LENS, etc.
+    current_lens = Column(String, nullable=True)         # OD or OE
+    od_job_id = Column(Integer, nullable=True)
+    oe_job_id = Column(Integer, nullable=True)
+    od_status = Column(String, default="PENDING")        # PENDING, PROCESSING, COMPLETED, SKIPPED, FAILED
+    oe_status = Column(String, default="PENDING")        # PENDING, PROCESSING, COMPLETED, SKIPPED, FAILED
+    operator_name = Column(String, default="Operador Padrão")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    start_time = Column(DateTime, nullable=True)
+    end_time = Column(DateTime, nullable=True)
+    last_activity = Column(DateTime, default=datetime.datetime.utcnow)
+    pause_count = Column(Integer, default=0)
+    skip_count = Column(Integer, default=0)
+    error_count = Column(Integer, default=0)
+    engraving_time_seconds = Column(Float, default=0.0)
+    last_stopped_lens = Column(String, nullable=True)
+    last_stopped_index = Column(Integer, nullable=True)
+
+class ProductionLog(Base):
+    __tablename__ = "production_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String, index=True, nullable=False)
+    lens_side = Column(String, nullable=True)            # OD, OE, or NONE
+    event_type = Column(String, nullable=False)          # LENS_POSITIONED, etc.
+    message = Column(Text)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)

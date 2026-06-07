@@ -116,19 +116,21 @@ class VirtualLaserMachine:
                 
         self.update_telemetry()
 
-    def start_job(self, job_id: int, total_lines: int):
+    def start_job(self, job_id: int, total_lines: int, start_line_index: int = 0):
         """Locks the simulator into PROCESSING mode."""
         self.update_telemetry()
         with self._lock:
+            if self.status == "ERROR" and not (self.door_open_alarm or self.overtemp_alarm or self.power_drop_alarm):
+                self.status = "READY"
             if self.status == "ERROR":
                 raise ValueError("Cannot start job: Hardware simulator is in ERROR state.")
             
             self.status = "PROCESSING"
             self.current_job_id = job_id
             self.total_gcode_lines = total_lines
-            self.current_gcode_index = 0
-            self.current_gcode_line = "Initializing..."
-            self.progress_pct = 0.0
+            self.current_gcode_index = start_line_index
+            self.current_gcode_line = "Resuming..." if start_line_index > 0 else "Initializing..."
+            self.progress_pct = round((start_line_index / total_lines) * 100.0, 1) if total_lines > 0 else 0.0
 
     def update_progress(self, index: int, line: str):
         """Updates line index and active coordinate progress."""

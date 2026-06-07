@@ -387,7 +387,8 @@ class GRBLSerialStreamer:
         self,
         gcode_text: str,
         progress_callback: Callable[[float], None] = None,
-        line_callback: Callable[[int, str], bool] = None
+        line_callback: Callable[[int, str], bool] = None,
+        start_line_index: int = 0
     ) -> bool:
         """
         Streams G-code lines over serial using GRBL protocol (wait-for-ok).
@@ -400,22 +401,25 @@ class GRBLSerialStreamer:
         if total_lines == 0:
             return True
             
-        logger.info(f"Starting G-Code stream to laser (port: {self.port}). Total instructions: {total_lines}")
+        logger.info(f"Starting G-Code stream to laser (port: {self.port}, start line: {start_line_index}). Total instructions: {total_lines}")
+        
+        lines_to_stream = lines[start_line_index:]
         
         if self.port == "COM_MOCK":
             # Simulate streaming
-            for idx, line in enumerate(lines):
+            for idx, line in enumerate(lines_to_stream):
+                actual_idx = start_line_index + idx
                 if not self.running:
                     logger.warning("Streaming aborted by operator.")
                     return False
                 
                 if line_callback:
-                    if not line_callback(idx, line):
+                    if not line_callback(actual_idx, line):
                         logger.warning("Streaming halted by line callback (alarm/abort).")
                         return False
                     
                 time.sleep(0.08)  # Simulate 80ms laser execution/transmission time for high-fidelity animations
-                progress = (idx + 1) / total_lines * 100.0
+                progress = (actual_idx + 1) / total_lines * 100.0
                 if progress_callback:
                     progress_callback(progress)
                     
@@ -426,19 +430,21 @@ class GRBLSerialStreamer:
         import serial
         try:
             ser = serial.Serial(self.port, self.baudrate, timeout=1.0)
-            # Wake up GRBL
-            ser.write(b"\r\n\r\n")
-            time.sleep(2.0)  # Wait for GRBL to initialize
-            ser.flushInput()
+            if start_line_index == 0:
+                # Wake up GRBL
+                ser.write(b"\r\n\r\n")
+                time.sleep(2.0)  # Wait for GRBL to initialize
+                ser.flushInput()
             
-            for idx, line in enumerate(lines):
+            for idx, line in enumerate(lines_to_stream):
+                actual_idx = start_line_index + idx
                 if not self.running:
                     logger.warning("Streaming aborted by operator.")
                     ser.close()
                     return False
                 
                 if line_callback:
-                    if not line_callback(idx, line):
+                    if not line_callback(actual_idx, line):
                         logger.warning("Streaming halted by line callback (alarm/abort).")
                         ser.close()
                         return False
@@ -456,7 +462,7 @@ class GRBLSerialStreamer:
                         return False
                     response = ser.readline().decode("utf-8").strip()
                     
-                progress = (idx + 1) / total_lines * 100.0
+                progress = (actual_idx + 1) / total_lines * 100.0
                 if progress_callback:
                     progress_callback(progress)
                     

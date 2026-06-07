@@ -12,15 +12,19 @@ import OMAViewer from './components/OMAViewer';
 import GcodePreview from './components/GcodePreview';
 import SimulatorPanel from './components/SimulatorPanel';
 
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = 'http://localhost:8001';
 
 
 export default function App() {
   const [jobs, setJobs] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [selectedJobId, setSelectedJobId] = useState(null);
+  const [orderFlow, setOrderFlow] = useState(null);
   
   // Derive selected job from jobs array to avoid stale closures
   const selectedJob = jobs.find((j) => j.id === selectedJobId) || null;
+  const activeOrder = orders.find((o) => o.job_id === selectedOrderId) || null;
 
   const [calibration, setCalibration] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -119,7 +123,21 @@ export default function App() {
         console.error('Error fetching jobs queue:', err);
       });
 
-    // 3. Fetch System Logs
+    // 3. Fetch Orders List
+    fetch(`${BACKEND_URL}/api/orders`)
+      .then((res) => {
+        if (!res.ok) throw new Error();
+        return res.json();
+      })
+      .then((data) => {
+        setOrders(data);
+        setBackendError(false);
+      })
+      .catch((err) => {
+        console.error('Error fetching orders:', err);
+      });
+
+    // 4. Fetch System Logs
     fetch(`${BACKEND_URL}/api/logs`)
       .then((res) => {
         if (!res.ok) throw new Error();
@@ -133,7 +151,7 @@ export default function App() {
         console.error('Error fetching logs:', err);
       });
 
-    // 4. Fetch Virtual Laser Machine status
+    // 5. Fetch Virtual Laser Machine status
     fetch(`${BACKEND_URL}/api/simulator/machine`)
       .then((res) => {
         if (res.ok) return res.json();
@@ -146,6 +164,33 @@ export default function App() {
         console.error('Error fetching machine status:', err);
       });
   }, []);
+
+  // Auto-select first order if none is selected
+  useEffect(() => {
+    if (!selectedOrderId && orders.length > 0) {
+      setSelectedOrderId(orders[0].job_id);
+    }
+  }, [orders, selectedOrderId]);
+
+  // Sync selectedJobId and orderFlow with active order
+  useEffect(() => {
+    if (!activeOrder) {
+      setSelectedJobId(null);
+      setOrderFlow(null);
+      return;
+    }
+    setOrderFlow(activeOrder);
+    
+    // Determine active lens based on current state lens side
+    const activeLens = activeOrder.current_lens || (activeOrder.od_job_id ? 'OD' : 'OE');
+    if (activeLens === 'OE' && activeOrder.oe_job_id) {
+      setSelectedJobId(activeOrder.oe_job_id);
+    } else if (activeOrder.od_job_id) {
+      setSelectedJobId(activeOrder.od_job_id);
+    } else {
+      setSelectedJobId(activeOrder.oe_job_id);
+    }
+  }, [activeOrder]);
 
   useEffect(() => {
     // Load initial data
@@ -209,11 +254,162 @@ export default function App() {
     fetch(`${BACKEND_URL}/api/system/mock-job`, { method: 'POST' })
       .then((res) => res.json())
       .then((data) => {
-        setJobs((prevJobs) => [data.job, ...prevJobs]);
-        setSelectedJobId(data.job.id);
+        if (data.job_id) {
+          setSelectedOrderId(data.job_id);
+        }
         fetchData();
       })
       .catch((err) => console.error(err));
+  };
+
+  // Handler to purge the entire database and reset simulator folders
+  const handleClearAll = () => {
+    if (!window.confirm("Aviso: Isso apagará permanentemente todos os pedidos, lentes do suporte e históricos de logs. Deseja prosseguir?")) {
+      return;
+    }
+    fetch(`${BACKEND_URL}/api/system/clear-all`, { method: 'POST' })
+      .then((res) => {
+        if (res.ok) {
+          setSelectedOrderId(null);
+          setSelectedJobId(null);
+          setOrderFlow(null);
+          setJobs([]);
+          setOrders([]);
+          fetchData();
+        } else {
+          alert("Falha ao reiniciar o sistema.");
+        }
+      })
+      .catch((err) => console.error(err));
+  };
+
+  // Guided Flow Event Handlers
+  const handleStartFlow = () => {
+    if (!orderFlow) return;
+    fetch(`${BACKEND_URL}/api/orders/${orderFlow.job_id}/flow/start`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        setOrderFlow(data);
+        fetchData();
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleConfirmRemoval = () => {
+    if (!orderFlow) return;
+    fetch(`${BACKEND_URL}/api/orders/${orderFlow.job_id}/flow/confirm-removal`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        setOrderFlow(data);
+        if (data.oe_job_id && data.state === 'WAITING_LEFT_LENS') {
+          setSelectedJobId(data.oe_job_id);
+        }
+        fetchData();
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleSkipFlow = () => {
+    if (!orderFlow) return;
+    fetch(`${BACKEND_URL}/api/orders/${orderFlow.job_id}/flow/skip`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        setOrderFlow(data);
+        if (data.oe_job_id && data.state === 'WAITING_LEFT_LENS') {
+          setSelectedJobId(data.oe_job_id);
+        }
+        fetchData();
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handlePauseFlow = () => {
+    if (!orderFlow) return;
+    fetch(`${BACKEND_URL}/api/orders/${orderFlow.job_id}/flow/pause`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        setOrderFlow(data);
+        fetchData();
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleResumeFlow = () => {
+    if (!orderFlow) return;
+    fetch(`${BACKEND_URL}/api/orders/${orderFlow.job_id}/flow/resume`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        setOrderFlow(data);
+        fetchData();
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleRestartFlow = () => {
+    if (!orderFlow) return;
+    fetch(`${BACKEND_URL}/api/orders/${orderFlow.job_id}/flow/restart`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        setOrderFlow(data);
+        fetchData();
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleCancelFlow = () => {
+    if (!orderFlow) return;
+    fetch(`${BACKEND_URL}/api/orders/${orderFlow.job_id}/flow/cancel`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        setOrderFlow(data);
+        fetchData();
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const getStepIndex = (state) => {
+    switch (state) {
+      case 'WAITING_RIGHT_LENS': return 0;
+      case 'RIGHT_LENS_PROCESSING': return 1;
+      case 'WAITING_RIGHT_REMOVAL': return 2;
+      case 'WAITING_LEFT_LENS': return 3;
+      case 'LEFT_LENS_PROCESSING': return 4;
+      case 'WAITING_LEFT_REMOVAL': return 5;
+      case 'COMPLETED':
+      case 'CANCELLED':
+        return 6;
+      case 'PAUSED':
+      case 'ERROR':
+        return orderFlow?.last_stopped_lens === 'OE' ? 4 : 1;
+      default: return 0;
+    }
+  };
+
+  const getInstructionText = (state) => {
+    switch (state) {
+      case 'WAITING_RIGHT_LENS':
+        return 'Posicione a lente DIREITA (OD) no suporte de gravação e confirme para iniciar.';
+      case 'RIGHT_LENS_PROCESSING':
+        return 'Gravando lente DIREITA (OD). Acompanhe o progresso e o feixe laser.';
+      case 'WAITING_RIGHT_REMOVAL':
+        return 'Gravação da lente DIREITA (OD) concluída. Remova a lente do suporte e confirme a remoção.';
+      case 'WAITING_LEFT_LENS':
+        return 'Posicione a lente ESQUERDA (OE) no suporte de gravação e confirme para iniciar.';
+      case 'LEFT_LENS_PROCESSING':
+        return 'Gravando lente ESQUERDA (OE). Acompanhe o progresso e o feixe laser.';
+      case 'WAITING_LEFT_REMOVAL':
+        return 'Gravação da lente ESQUERDA (OE) concluída. Remova a lente do suporte.';
+      case 'PAUSED':
+        return `Gravação da Lente ${orderFlow?.last_stopped_lens || 'OD'} pausada pelo operador. Selecione uma ação para continuar.`;
+      case 'ERROR':
+        return 'ALERTA DE SISTEMA: O processo foi interrompido por um alarme de segurança ou falha de hardware.';
+      case 'COMPLETED':
+        return 'Ciclo de produção concluído com sucesso para este pedido!';
+      case 'CANCELLED':
+        return 'Este pedido foi cancelado manualmente e o ciclo foi abortado.';
+      default:
+        return 'Selecione um pedido na fila para iniciar o fluxo operacional.';
+    }
   };
 
   // Alarm Toggling Handler
@@ -242,7 +438,7 @@ export default function App() {
       .catch((err) => console.error(err));
   };
 
-  const isStreaming = selectedJob?.status.startsWith('Streaming') || machineStatus?.status === 'PROCESSING';
+  const isStreaming = selectedJob?.status.startsWith('Streaming') || machineStatus?.status === 'PROCESSING' || (orderFlow && (orderFlow.state === 'RIGHT_LENS_PROCESSING' || orderFlow.state === 'LEFT_LENS_PROCESSING'));
   const isReady = selectedJob?.status === 'Ready' || selectedJob?.status === 'Success';
   const isMachineError = machineStatus?.status === 'ERROR';
 
@@ -332,7 +528,7 @@ export default function App() {
           }}>
             <span>⚠️</span>
             <div>
-              <strong>ERRO DE CONEXÃO COM O SERVIDOR:</strong> O backend FastAPI (porta 8000) não está respondendo.
+              <strong>ERRO DE CONEXÃO COM O SERVIDOR:</strong> O backend FastAPI (porta 8001) não está respondendo.
             </div>
           </div>
         )}
@@ -343,15 +539,17 @@ export default function App() {
             {/* Left Column: Queue & raw OMA parser */}
             <div className="panel-column-dense scada-queue-panel">
               <JobQueue 
-                jobs={jobs} 
-                selectedJob={selectedJob} 
-                onSelectJob={(job) => setSelectedJobId(job ? job.id : null)} 
+                orders={orders} 
+                selectedOrderId={selectedOrderId} 
+                onSelectOrder={(orderId) => setSelectedOrderId(orderId)} 
                 onCreateMockJob={handleCreateMockJob}
+                onClearAll={handleClearAll}
+                machineStatus={machineStatus}
               />
               <OMAViewer job={selectedJob} />
             </div>
 
-            {/* Center Column: Lens Preview CAD & execution triggers */}
+            {/* Center Column: Lens Preview CAD & guided operational steps */}
             <div className="panel-column glass-panel" style={{ height: '100%' }}>
               <div className="panel-header">
                 <span>Visualização CAD e Geometria da Lente</span>
@@ -370,50 +568,170 @@ export default function App() {
                 />
               </div>
 
-              {/* Action Trigger Panels */}
-              {selectedJob && (
-                <div className="laser-control-actions">
-                  <button 
-                    className="btn btn-glass"
-                    onClick={handleReprocessJob}
-                    disabled={isStreaming}
-                  >
-                    Re-calcular Geometria
-                  </button>
+              {/* Operator Guidance Workflow Panel */}
+              {selectedJob && orderFlow && (
+                <div className="operator-workflow-box" style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                  {/* Production Stepper */}
+                  <div className="production-stepper">
+                    {[
+                      'Posicionar OD',
+                      'Gravando OD',
+                      'Remover OD',
+                      'Posicionar OE',
+                      'Gravando OE',
+                      'Remover OE',
+                      'Concluído'
+                    ].map((label, idx) => {
+                      const activeIdx = getStepIndex(orderFlow.state);
+                      let stepClass = 'stepper-step';
+                      if (idx === activeIdx) {
+                        stepClass += ' active';
+                      } else if (idx < activeIdx) {
+                        stepClass += ' completed';
+                      }
+                      return (
+                        <div key={idx} className={stepClass}>
+                          <div className="step-circle">
+                            {idx < activeIdx ? '✓' : idx + 1}
+                          </div>
+                          <div className="step-label">{label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
 
-                  {isStreaming ? (
-                    <button 
-                      className="btn btn-red"
-                      onClick={handleAbortLaser}
-                    >
-                      🛑 Abortar Gravação
-                    </button>
-                  ) : (
-                    <button 
-                      className="btn btn-cyan"
-                      onClick={handleStartLaser}
-                      disabled={(!isReady && selectedJob.status !== 'Failed') || isMachineError}
-                    >
-                      ⚡ Executar Gravação Laser
-                    </button>
-                  )}
+                  {/* Operator Instructions Box */}
+                  <div className="operator-instructions-panel">
+                    <div className="instruction-title">Orientação do Operador</div>
+                    <div className="instruction-text">{getInstructionText(orderFlow.state)}</div>
+                  </div>
+
+                  {/* Operational Action Buttons */}
+                  <div className="laser-control-actions" style={{ borderTop: 'none', padding: '12px 16px' }}>
+                    {/* WAITING STATES */}
+                    {(orderFlow.state === 'WAITING_RIGHT_LENS' || orderFlow.state === 'WAITING_LEFT_LENS') && (
+                      <>
+                        <button className="btn btn-cyan" onClick={handleStartFlow}>
+                          ⚡ Iniciar Gravação
+                        </button>
+                        <button className="btn btn-glass" onClick={handleSkipFlow}>
+                          ⏭️ Pular Lente
+                        </button>
+                        <button className="btn btn-glass" onClick={handleReprocessJob}>
+                          🔄 Re-calcular Geometria
+                        </button>
+                      </>
+                    )}
+
+                    {/* PROCESSING STATES */}
+                    {(orderFlow.state === 'RIGHT_LENS_PROCESSING' || orderFlow.state === 'LEFT_LENS_PROCESSING') && (
+                      <>
+                        <button className="btn btn-orange" onClick={handlePauseFlow}>
+                          ⏸️ Pausar Gravação
+                        </button>
+                        <button className="btn btn-red" onClick={handleCancelFlow}>
+                          🛑 Cancelar Pedido
+                        </button>
+                      </>
+                    )}
+
+                    {/* PAUSED STATE */}
+                    {orderFlow.state === 'PAUSED' && (
+                      <>
+                        <button className="btn btn-cyan" onClick={handleResumeFlow}>
+                          ▶️ Retomar Gravação
+                        </button>
+                        <button className="btn btn-glass" onClick={handleRestartFlow}>
+                          🔄 Reiniciar Lente
+                        </button>
+                        <button className="btn btn-red" onClick={handleCancelFlow}>
+                          🛑 Cancelar Pedido
+                        </button>
+                      </>
+                    )}
+
+                    {/* REMOVAL STATES */}
+                    {orderFlow.state === 'WAITING_RIGHT_REMOVAL' && (
+                      <button className="btn btn-green" onClick={handleConfirmRemoval}>
+                        ✅ Confirmar Remoção
+                      </button>
+                    )}
+                    {orderFlow.state === 'WAITING_LEFT_REMOVAL' && (
+                      <button className="btn btn-green" onClick={handleConfirmRemoval}>
+                        🏁 Finalizar Pedido
+                      </button>
+                    )}
+
+                    {/* ERROR STATE */}
+                    {orderFlow.state === 'ERROR' && (
+                      <>
+                        <button className="btn btn-orange" onClick={handleRestartFlow}>
+                          🔄 Reiniciar Gravação
+                        </button>
+                        <button className="btn btn-red" onClick={handleCancelFlow}>
+                          🛑 Cancelar Pedido
+                        </button>
+                        <button className="btn btn-glass" onClick={handleResetAlarms} style={{ flex: 1.5 }}>
+                          🔧 Resetar Alarme
+                        </button>
+                      </>
+                    )}
+
+                    {/* COMPLETED or CANCELLED STATE */}
+                    {(orderFlow.state === 'COMPLETED' || orderFlow.state === 'CANCELLED') && (
+                      <div style={{ display: 'flex', width: '100%', justifyContent: 'center', fontSize: '0.85rem', color: orderFlow.state === 'COMPLETED' ? 'var(--green-glow)' : 'var(--red-glow)', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                        {orderFlow.state === 'COMPLETED' ? '✓ CICLO OPERACIONAL CONCLUÍDO' : '❌ CICLO OPERACIONAL CANCELADO'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Right Column: Active Gcode console & scrolling system logs */}
+            {/* Right Column: Active Gcode console & order timeline */}
             <div className="panel-column-dense">
               <GcodePreview 
                 gcodeText={gcodeText} 
                 currentLineIndex={machineStatus.current_gcode_index}
                 isStreaming={isStreaming}
               />
-              <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', flex: 1, maxHeight: '250px' }}>
-                <div className="panel-header" style={{ padding: '8px 12px', fontSize: '0.8rem' }}>
-                  <span>LOGS OPERACIONAIS EM TEMPO REAL</span>
+              
+              {/* Order Specific Timeline */}
+              <div className="glass-panel order-timeline-panel">
+                <div className="panel-header" style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                  <span>📋 HISTÓRICO OPERACIONAL DO PEDIDO {orderFlow ? `: ${orderFlow.job_id}` : ''}</span>
                 </div>
-                <div className="panel-body" style={{ padding: '8px', overflow: 'hidden' }}>
-                  <LogsView logs={logs} />
+                <div className="timeline-list">
+                  {orderFlow && orderFlow.logs && orderFlow.logs.length > 0 ? (
+                    orderFlow.logs.map((log) => {
+                      const logTime = new Date(log.timestamp).toLocaleTimeString('pt-BR');
+                      const isWarning = log.event_type === 'ERROR' && log.message.includes('inatividade');
+                      const isError = log.event_type === 'ERROR' && !log.message.includes('inatividade');
+                      
+                      let msgClass = "timeline-msg-text";
+                      if (isWarning) msgClass += " warning";
+                      if (isError) msgClass += " danger";
+                      
+                      return (
+                        <div key={log.id} className="timeline-row">
+                          <span className="timeline-time">{logTime}</span>
+                          {log.lens_side && log.lens_side !== 'NONE' && (
+                            <span className={`timeline-badge-tag badge-lens-${log.lens_side}`}>
+                              {log.lens_side}
+                            </span>
+                          )}
+                          <span className={`timeline-badge-tag badge-event-${log.event_type}`}>
+                            {log.event_type}
+                          </span>
+                          <span className={msgClass}>{log.message}</span>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                      [NENHUM EVENTO REGISTRADO]
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -425,18 +743,26 @@ export default function App() {
             {/* Left Column: Queue */}
             <div className="panel-column-dense scada-queue-panel">
               <JobQueue 
-                jobs={jobs} 
-                selectedJob={selectedJob} 
-                onSelectJob={(job) => setSelectedJobId(job ? job.id : null)} 
+                orders={orders} 
+                selectedOrderId={selectedOrderId} 
+                onSelectOrder={(orderId) => setSelectedOrderId(orderId)} 
                 onCreateMockJob={handleCreateMockJob}
+                onClearAll={handleClearAll}
+                machineStatus={machineStatus}
               />
             </div>
 
-            {/* Center Column: Lens Preview CAD & execution triggers */}
+            {/* Center Column: Lens Preview CAD & guided operational steps */}
             <div className="panel-column glass-panel" style={{ height: '100%' }}>
               <div className="panel-header">
                 <span>Visualização CAD e Geometria da Lente</span>
+                {selectedJob && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    {selectedJob.filename} ({selectedJob.status})
+                  </span>
+                )}
               </div>
+              
               <div className="panel-body" style={{ padding: 0 }}>
                 <LensPreview 
                   selectedJob={selectedJob} 
@@ -444,19 +770,123 @@ export default function App() {
                   machineStatus={machineStatus}
                 />
               </div>
-              {selectedJob && (
-                <div className="laser-control-actions">
-                  {isStreaming ? (
-                    <button className="btn btn-red" onClick={handleAbortLaser}>🛑 Abortar Gravação</button>
-                  ) : (
-                    <button 
-                      className="btn btn-cyan" 
-                      onClick={handleStartLaser} 
-                      disabled={(!isReady && selectedJob.status !== 'Failed') || isMachineError}
-                    >
-                      ⚡ Executar Gravação Laser
-                    </button>
-                  )}
+
+              {/* Operator Guidance Workflow Panel (Simulation Mode) */}
+              {selectedJob && orderFlow && (
+                <div className="operator-workflow-box" style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                  {/* Production Stepper */}
+                  <div className="production-stepper">
+                    {[
+                      'Posicionar OD',
+                      'Gravando OD',
+                      'Remover OD',
+                      'Posicionar OE',
+                      'Gravando OE',
+                      'Remover OE',
+                      'Concluído'
+                    ].map((label, idx) => {
+                      const activeIdx = getStepIndex(orderFlow.state);
+                      let stepClass = 'stepper-step';
+                      if (idx === activeIdx) {
+                        stepClass += ' active';
+                      } else if (idx < activeIdx) {
+                        stepClass += ' completed';
+                      }
+                      return (
+                        <div key={idx} className={stepClass}>
+                          <div className="step-circle">
+                            {idx < activeIdx ? '✓' : idx + 1}
+                          </div>
+                          <div className="step-label">{label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Operator Instructions Box */}
+                  <div className="operator-instructions-panel">
+                    <div className="instruction-title">Orientação do Operador</div>
+                    <div className="instruction-text">{getInstructionText(orderFlow.state)}</div>
+                  </div>
+
+                  {/* Operational Action Buttons */}
+                  <div className="laser-control-actions" style={{ borderTop: 'none', padding: '12px 16px' }}>
+                    {/* WAITING STATES */}
+                    {(orderFlow.state === 'WAITING_RIGHT_LENS' || orderFlow.state === 'WAITING_LEFT_LENS') && (
+                      <>
+                        <button className="btn btn-cyan" onClick={handleStartFlow}>
+                          ⚡ Iniciar Gravação
+                        </button>
+                        <button className="btn btn-glass" onClick={handleSkipFlow}>
+                          ⏭️ Pular Lente
+                        </button>
+                        <button className="btn btn-glass" onClick={handleReprocessJob}>
+                          🔄 Re-calcular Geometria
+                        </button>
+                      </>
+                    )}
+
+                    {/* PROCESSING STATES */}
+                    {(orderFlow.state === 'RIGHT_LENS_PROCESSING' || orderFlow.state === 'LEFT_LENS_PROCESSING') && (
+                      <>
+                        <button className="btn btn-orange" onClick={handlePauseFlow}>
+                          ⏸️ Pausar Gravação
+                        </button>
+                        <button className="btn btn-red" onClick={handleCancelFlow}>
+                          🛑 Cancelar Pedido
+                        </button>
+                      </>
+                    )}
+
+                    {/* PAUSED STATE */}
+                    {orderFlow.state === 'PAUSED' && (
+                      <>
+                        <button className="btn btn-cyan" onClick={handleResumeFlow}>
+                          ▶️ Retomar Gravação
+                        </button>
+                        <button className="btn btn-glass" onClick={handleRestartFlow}>
+                          🔄 Reiniciar Lente
+                        </button>
+                        <button className="btn btn-red" onClick={handleCancelFlow}>
+                          🛑 Cancelar Pedido
+                        </button>
+                      </>
+                    )}
+
+                    {/* REMOVAL STATES */}
+                    {orderFlow.state === 'WAITING_RIGHT_REMOVAL' && (
+                      <button className="btn btn-green" onClick={handleConfirmRemoval}>
+                        ✅ Confirmar Remoção
+                      </button>
+                    )}
+                    {orderFlow.state === 'WAITING_LEFT_REMOVAL' && (
+                      <button className="btn btn-green" onClick={handleConfirmRemoval}>
+                        🏁 Finalizar Pedido
+                      </button>
+                    )}
+
+                    {/* ERROR STATE */}
+                    {orderFlow.state === 'ERROR' && (
+                      <>
+                        <button className="btn btn-orange" onClick={handleRestartFlow}>
+                          🔄 Reiniciar Gravação
+                        </button>
+                        <button className="btn btn-red" onClick={handleCancelFlow}>
+                          🛑 Cancelar Pedido
+                        </button>
+                        <button className="btn btn-glass" onClick={handleResetAlarms} style={{ flex: 1.5 }}>
+                          🔧 Resetar Alarme
+                        </button>
+                      </>
+                    )}
+
+                    {/* COMPLETED or CANCELLED STATE */}
+                    {(orderFlow.state === 'COMPLETED' || orderFlow.state === 'CANCELLED') && (
+                      <div style={{ display: 'flex', width: '100%', justifyContent: 'center', fontSize: '0.85rem', color: orderFlow.state === 'COMPLETED' ? 'var(--green-glow)' : 'var(--red-glow)', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                        {orderFlow.state === 'COMPLETED' ? '✓ CICLO OPERACIONAL CONCLUÍDO' : '❌ CICLO OPERACIONAL CANCELADO'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

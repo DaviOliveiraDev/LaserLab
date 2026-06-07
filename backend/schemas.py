@@ -116,3 +116,40 @@ class SimulatorAlarmRequest(BaseModel):
     alarm_name: str
     value: bool
 
+class ProductionLogResponse(BaseModel):
+    id: int
+    job_id: str
+    lens_side: Optional[str] = None
+    event_type: str
+    message: Optional[str] = None
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+class OrderFlowResponse(BaseModel):
+    id: int
+    job_id: str
+    state: str
+    current_lens: Optional[str] = None
+    od_job_id: Optional[int] = None
+    oe_job_id: Optional[int] = None
+    od_status: str
+    oe_status: str
+    operator_name: str
+    created_at: datetime
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    last_activity: datetime
+    pause_count: int
+    skip_count: int
+    error_count: int
+    engraving_time_seconds: float
+    last_stopped_lens: Optional[str] = None
+    last_stopped_index: Optional[int] = None
+    
+    logs: Optional[List[ProductionLogResponse]] = None
+
+    class Config:
+        from_attributes = True
+
